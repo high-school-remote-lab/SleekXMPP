@@ -1484,7 +1484,13 @@ class XMLStream(object):
                 shutdown = True
             except (SyntaxError, ExpatError) as e:
                 log.error("Error reading from XML stream.")
-                self.exception(e)
+                log.debug("Firing XML error callback ...")
+                self.error_handler.set_flag()
+                self.error_handler.fire()
+
+                # kill thread
+                self.abort()
+
             except (Socket.error, ssl.SSLError) as serr:
                 self.event('socket_error', serr, direct=True)
                 log.error('Socket Error #%s: %s', serr.errno, serr.strerror)
