@@ -1485,7 +1485,6 @@ class XMLStream(object):
             except (SyntaxError, ExpatError) as e:
                 log.error("Error reading from XML stream.")
                 log.debug("Firing XML error callback ...")
-                self.error_handler.set_flag()
                 self.error_handler.fire()
 
                 # kill thread
