@@ -126,6 +126,7 @@ class XEP_0045(BasePlugin):
         # load MUC support in presence stanzas
         register_stanza_plugin(Presence, MUCPresence)
         self.xmpp.register_handler(Callback('MUCPresence', MatchXMLMask("<presence xmlns='%s' />" % self.xmpp.default_ns), self.handle_groupchat_presence))
+        self.xmpp.register_handler(Callback('MUCError', MatchXMLMask("<message xmlns='%s' type='error'><error/></message>" % self.xmpp.default_ns), self.handle_groupchat_error_message))
         self.xmpp.register_handler(Callback('MUCMessage', MatchXMLMask("<message xmlns='%s' type='groupchat'><body/></message>" % self.xmpp.default_ns), self.handle_groupchat_message))
         self.xmpp.register_handler(Callback('MUCSubject', MatchXMLMask("<message xmlns='%s' type='groupchat'><subject/></message>" % self.xmpp.default_ns), self.handle_groupchat_subject))
         self.xmpp.register_handler(Callback('MUCConfig', MatchXMLMask("<message xmlns='%s' type='groupchat'><x xmlns='http://jabber.org/protocol/muc#user'><status/></x></message>" % self.xmpp.default_ns), self.handle_config_change))
@@ -178,6 +179,14 @@ class XEP_0045(BasePlugin):
         """
         self.xmpp.event('groupchat_message', msg)
         self.xmpp.event("muc::%s::message" % msg['from'].bare, msg)
+
+    def handle_groupchat_error_message(self, msg):
+        """ Handle a message error event in a muc.
+        """
+        self.xmpp.event('groupchat_message_error', msg)
+        self.xmpp.event("muc::%s::message_error" % msg['from'].bare, msg)
+
+
 
     def handle_groupchat_subject(self, msg):
         """ Handle a message coming from a muc indicating
@@ -295,7 +304,7 @@ class XEP_0045(BasePlugin):
             room), whereas affiliations are permanent (they last across groupchat
             sessions).
         """
-        if role not in ('outcast', 'member', 'admin', 'owner', 'none'):
+        if role not in ('moderator', 'participant', 'visitor', 'none'):
             raise TypeError
         query = ET.Element('{http://jabber.org/protocol/muc#admin}query')
         item = ET.Element('item', {'role':role, 'nick':nick})    

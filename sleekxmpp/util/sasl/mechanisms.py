@@ -111,7 +111,7 @@ class X_FACEBOOK_PLATFORM(Mech):
                 b'api_key': self.credentials['api_key']
             }
 
-            resp = '&'.join(['%s=%s' % (k, v) for k, v in resp_data.items()])
+            resp = '&'.join(['%s=%s' % (k.decode("utf-8"), v.decode("utf-8")) for k, v in resp_data.items()])
             return bytes(resp)
         return b''
 
@@ -287,7 +287,9 @@ class SCRAM(Mech):
         if nonce[:len(self.cnonce)] != self.cnonce:
             raise SASLCancelled('Invalid nonce')
 
-        cbind_data = self.credentials['channel_binding']
+        cbind_data = b''
+        if self.use_channel_binding:
+            cbind_data = self.credentials['channel_binding']
         cbind_input = self.gs2_header + cbind_data
         channel_binding = b'c=' + b64encode(cbind_input).replace(b'\n', b'')
 
