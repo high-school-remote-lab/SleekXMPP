@@ -481,6 +481,15 @@ class XMLStream(object):
                 self._service_name = host
             except StopIteration:
                 log.debug("No remaining DNS records to try.")
+
+                # This is error too, if network goes down then DNS resolution fails (correct)
+                # When network connection is restored, DNS resolution still fails (incorrect)
+                log.debug("DNS error, firing error callback")
+                self.error_handler.fire()
+                raise Exception("DNS error")
+                if self.socket:
+                    self.abort()
+
                 self.dns_answers = None
                 if reattempt:
                     self.reconnect_delay = delay
@@ -575,6 +584,8 @@ class XMLStream(object):
             return True
         except (Socket.error, ssl.SSLError) as serr:
             error_msg = "Could not connect to %s:%s. Socket Error #%s: %s"
+            # if network is down
+            time.sleep(0.1)
             self.event('socket_error', serr, direct=True)
             domain = self.address[0]
             if ':' in domain:
@@ -1460,57 +1471,65 @@ class XMLStream(object):
         while True:
             shutdown = False
             try:
-                # The call to self.__read_xml will block and prevent
-                # the body of the loop from running until a disconnect
-                # occurs. After any reconnection, the stream header will
-                # be resent and processing will resume.
-                while not self.stop.is_set():
-                    # Only process the stream while connected to the server
-                    if not self.state.ensure('connected', wait=0.1):
-                        break
-                    # Ensure the stream header is sent for any
-                    # new connections.
-                    if not self.session_started_event.is_set():
-                        self.send_raw(self.stream_header, now=True)
-                    if not self.__read_xml():
-                        # If the server terminated the stream, end processing
-                        break
-            except KeyboardInterrupt:
-                log.debug("Keyboard Escape Detected in _process")
-                self.event('killed', direct=True)
-                shutdown = True
-            except SystemExit:
-                log.debug("SystemExit in _process")
-                shutdown = True
-            except (SyntaxError, ExpatError) as e:
-                log.error("Error reading from XML stream.")
-                log.debug("Firing XML error callback ...")
+                try:
+                    # The call to self.__read_xml will block and prevent
+                    # the body of the loop from running until a disconnect
+                    # occurs. After any reconnection, the stream header will
+                    # be resent and processing will resume.
+                    while not self.stop.is_set():
+                        # Only process the stream while connected to the server
+                        if not self.state.ensure('connected', wait=0.1):
+                            break
+                        # Ensure the stream header is sent for any
+                        # new connections.
+                        if not self.session_started_event.is_set():
+                            self.send_raw(self.stream_header, now=True)
+                        if not self.__read_xml():
+                            # If the server terminated the stream, end processing
+                            break
+                except KeyboardInterrupt:
+                    log.debug("Keyboard Escape Detected in _process")
+                    self.event('killed', direct=True)
+                    shutdown = True
+                except SystemExit:
+                    log.debug("SystemExit in _process")
+                    shutdown = True
+                except (SyntaxError, ExpatError) as e:
+                    log.error("Error reading from XML stream.")
+                    log.debug("Firing XML error callback ...")
+                    self.error_handler.fire()
+
+                    # kill thread
+                    self.abort()
+
+                except (Socket.error, ssl.SSLError) as serr:
+                    self.event('socket_error', serr, direct=True)
+                    log.error('Socket Error #%s: %s', serr.errno, serr.strerror)
+                except ValueError as e:
+                    msg = e.message if hasattr(e, 'message') else e.args[0]
+
+                    if 'I/O operation on closed file' in msg:
+                        log.error('Can not read from closed socket.')
+                    else:
+                        self.exception(e)
+                except Exception as e:
+                    if not self.stop.is_set():
+                        log.error('Connection error.')
+                    self.exception(e)
+
+                if not shutdown and not self.stop.is_set() \
+                   and self.auto_reconnect:
+                    self.reconnect()
+                else:
+                    self.disconnect()
+                    break
+            except Exception as e:
+                log.debug("Error occured, firing client error callbacks")
+                log.debug("Exception: {}".format(e))
                 self.error_handler.fire()
 
                 # kill thread
                 self.abort()
-
-            except (Socket.error, ssl.SSLError) as serr:
-                self.event('socket_error', serr, direct=True)
-                log.error('Socket Error #%s: %s', serr.errno, serr.strerror)
-            except ValueError as e:
-                msg = e.message if hasattr(e, 'message') else e.args[0]
-
-                if 'I/O operation on closed file' in msg:
-                    log.error('Can not read from closed socket.')
-                else:
-                    self.exception(e)
-            except Exception as e:
-                if not self.stop.is_set():
-                    log.error('Connection error.')
-                self.exception(e)
-
-            if not shutdown and not self.stop.is_set() \
-               and self.auto_reconnect:
-                self.reconnect()
-            else:
-                self.disconnect()
-                break
 
     def __read_xml(self):
         """Parse the incoming XML stream
