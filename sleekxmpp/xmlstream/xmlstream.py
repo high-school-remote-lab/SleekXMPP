@@ -481,14 +481,9 @@ class XMLStream(object):
                 self._service_name = host
             except StopIteration:
                 log.debug("No remaining DNS records to try.")
-                # When network connection is restored, DNS resolution still fails so error_handler is fired
-                log.debug("DNS error, firing error callback")
-                self.error_handler.fire()
+                #Abort on network connection error
                 self.dns_answers = None
-                if reattempt:
-                    self.reconnect_delay = delay
-                if self.socket:
-                    self.abort()
+                self.abort()
                 return False
 
         af = Socket.AF_INET
